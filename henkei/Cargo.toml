@@ -1,0 +1,17 @@
+[package]
+name = "henkei"
+version = "0.1.0"
+edition = "2021"
+description = "A lightweight CLI tool to instantly compile any website into a native, optimized Windows desktop app installer."
+license = "MIT"
+readme = "../README.md"
+repository = "https://github.com/yourusername/henkei"
+keywords = ["webview", "webview2", "desktop", "installer", "lightweight"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
+scraper = "0.18"
+url = "2.4"
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "ico", "bmp"] }
