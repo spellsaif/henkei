@@ -1,0 +1,15 @@
+# Cargo / Rust build directories
+target/
+**/target/
+
+# Generated build output
+build/
+dist/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# User configurations/environment variables
+.env
+.env.*
