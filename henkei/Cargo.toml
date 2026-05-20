@@ -1,6 +1,6 @@
 [package]
 name = "henkei"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A lightweight CLI tool to instantly compile any website into a native, optimized Windows desktop app installer."
 license = "MIT"
