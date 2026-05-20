@@ -59,12 +59,15 @@ fn run_installer() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Create shortcuts
     println!("Creating shortcuts...");
-    let user_profile = std::env::var("USERPROFILE")?;
-    let desktop_shortcut = PathBuf::from(&user_profile).join("Desktop").join(format!("{}.lnk", config::APP_NAME));
-    
-    let app_data = std::env::var("APPDATA")?;
-    let start_menu_dir = PathBuf::from(&app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
-    let start_menu_shortcut = start_menu_dir.join(format!("{}.lnk", config::APP_NAME));
+    let desktop_shortcut = get_desktop_path().join(format!("{}.lnk", config::APP_NAME));
+    let start_menu_shortcut = get_start_menu_programs_path().join(format!("{}.lnk", config::APP_NAME));
+
+    if let Some(parent) = desktop_shortcut.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if let Some(parent) = start_menu_shortcut.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
     create_shortcut(
         app_exe_path.to_str().unwrap(),
@@ -132,12 +135,8 @@ fn run_uninstaller() -> Result<(), Box<dyn std::error::Error>> {
     let install_dir = PathBuf::from(&local_app_data).join("Programs").join(config::APP_NAME);
     
     // 2. Delete shortcuts
-    let user_profile = std::env::var("USERPROFILE")?;
-    let desktop_shortcut = PathBuf::from(&user_profile).join("Desktop").join(format!("{}.lnk", config::APP_NAME));
-    
-    let app_data = std::env::var("APPDATA")?;
-    let start_menu_dir = PathBuf::from(&app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
-    let start_menu_shortcut = start_menu_dir.join(format!("{}.lnk", config::APP_NAME));
+    let desktop_shortcut = get_desktop_path().join(format!("{}.lnk", config::APP_NAME));
+    let start_menu_shortcut = get_start_menu_programs_path().join(format!("{}.lnk", config::APP_NAME));
 
     if desktop_shortcut.exists() {
         let _ = fs::remove_file(&desktop_shortcut);
@@ -192,4 +191,55 @@ fn create_shortcut(target_path: &str, shortcut_path: &str, icon_path: &str) -> s
         ));
     }
     Ok(())
+}
+
+fn expand_env_string(raw: &str) -> String {
+    let mut result = raw.to_string();
+    if result.contains("%USERPROFILE%") {
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            result = result.replace("%USERPROFILE%", &user_profile);
+        }
+    }
+    if result.contains("%APPDATA%") {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            result = result.replace("%APPDATA%", &app_data);
+        }
+    }
+    result
+}
+
+fn get_desktop_path() -> PathBuf {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
+        if let Ok(raw_val) = key.get_value::<String, _>("Desktop") {
+            let expanded = expand_env_string(&raw_val);
+            let path = PathBuf::from(expanded);
+            if path.exists() {
+                return path;
+            }
+        }
+    }
+    // Fallback to default
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        return PathBuf::from(user_profile).join("Desktop");
+    }
+    PathBuf::from(".")
+}
+
+fn get_start_menu_programs_path() -> PathBuf {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
+        if let Ok(raw_val) = key.get_value::<String, _>("Programs") {
+            let expanded = expand_env_string(&raw_val);
+            let path = PathBuf::from(expanded);
+            if path.exists() {
+                return path;
+            }
+        }
+    }
+    // Fallback to default
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        return PathBuf::from(app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
+    }
+    PathBuf::from(".")
 }
