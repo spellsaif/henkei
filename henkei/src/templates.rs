@@ -175,26 +175,39 @@ fn run_installer() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Installing...");
 
+    // 1. Get paths
     let local_app_data = std::env::var("LOCALAPPDATA")?;
     let install_dir = PathBuf::from(&local_app_data).join("Programs").join(config::APP_NAME);
     let app_exe_path = install_dir.join(format!("{}.exe", config::APP_NAME));
     let uninstall_exe_path = install_dir.join("uninstall.exe");
 
+    // 2. Create installation directory
     fs::create_dir_all(&install_dir)?;
 
+    // 3. Write application binary
     println!("Writing application files...");
     fs::write(&app_exe_path, APP_BINARY)?;
 
+    // 4. Write icon if we have one compiled (we can copy our own icon if available)
+    // Wait, the installer itself contains the icon compiled in, but we can also extract a file if needed.
+    // However, the powershell script shortcut can point directly to the app_exe_path since the app exe
+    // has the embedded icon compiled in via winres! This is awesome.
+    
+    // 5. Copy current running executable (ourselves) to the install directory as uninstall.exe
     let current_exe = std::env::current_exe()?;
     fs::copy(&current_exe, &uninstall_exe_path)?;
 
+    // 6. Create shortcuts
     println!("Creating shortcuts...");
-    let user_profile = std::env::var("USERPROFILE")?;
-    let desktop_shortcut = PathBuf::from(&user_profile).join("Desktop").join(format!("{}.lnk", config::APP_NAME));
-    
-    let app_data = std::env::var("APPDATA")?;
-    let start_menu_dir = PathBuf::from(&app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
-    let start_menu_shortcut = start_menu_dir.join(format!("{}.lnk", config::APP_NAME));
+    let desktop_shortcut = get_desktop_path().join(format!("{}.lnk", config::APP_NAME));
+    let start_menu_shortcut = get_start_menu_programs_path().join(format!("{}.lnk", config::APP_NAME));
+
+    if let Some(parent) = desktop_shortcut.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if let Some(parent) = start_menu_shortcut.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
     create_shortcut(
         app_exe_path.to_str().unwrap(),
@@ -208,6 +221,7 @@ fn run_installer() -> Result<(), Box<dyn std::error::Error>> {
         app_exe_path.to_str().unwrap(),
     )?;
 
+    // 7. Write registry entries for Windows Uninstall
     println!("Registering uninstaller...");
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _disp) = hkcu.create_subkey(format!(
@@ -233,6 +247,7 @@ fn run_installer() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
 
+    // Launch the app
     Command::new(&app_exe_path).spawn()?;
 
     Ok(())
@@ -255,15 +270,13 @@ fn run_uninstaller() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Uninstalling...");
 
+    // 1. Get paths
     let local_app_data = std::env::var("LOCALAPPDATA")?;
     let install_dir = PathBuf::from(&local_app_data).join("Programs").join(config::APP_NAME);
     
-    let user_profile = std::env::var("USERPROFILE")?;
-    let desktop_shortcut = PathBuf::from(&user_profile).join("Desktop").join(format!("{}.lnk", config::APP_NAME));
-    
-    let app_data = std::env::var("APPDATA")?;
-    let start_menu_dir = PathBuf::from(&app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
-    let start_menu_shortcut = start_menu_dir.join(format!("{}.lnk", config::APP_NAME));
+    // 2. Delete shortcuts
+    let desktop_shortcut = get_desktop_path().join(format!("{}.lnk", config::APP_NAME));
+    let start_menu_shortcut = get_start_menu_programs_path().join(format!("{}.lnk", config::APP_NAME));
 
     if desktop_shortcut.exists() {
         let _ = fs::remove_file(&desktop_shortcut);
@@ -272,13 +285,17 @@ fn run_uninstaller() -> Result<(), Box<dyn std::error::Error>> {
         let _ = fs::remove_file(&start_menu_shortcut);
     }
 
+    // 3. Delete registry key
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let uninstall_key_path = format!(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{}", config::APP_NAME);
     let _ = hkcu.delete_subkey_all(&uninstall_key_path);
 
+    // 4. Self deletion trick.
+    // We will spawn a detached cmd process that waits a second, then deletes the install directory.
     let install_dir_str = install_dir.to_str().unwrap().to_string();
     println!("Cleaning up files...");
     
+    // Start cmd in background to delete the folder
     Command::new("cmd")
         .args(&[
             "/c",
@@ -314,5 +331,56 @@ fn create_shortcut(target_path: &str, shortcut_path: &str, icon_path: &str) -> s
         ));
     }
     Ok(())
+}
+
+fn expand_env_string(raw: &str) -> String {
+    let mut result = raw.to_string();
+    if result.contains("%USERPROFILE%") {
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            result = result.replace("%USERPROFILE%", &user_profile);
+        }
+    }
+    if result.contains("%APPDATA%") {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            result = result.replace("%APPDATA%", &app_data);
+        }
+    }
+    result
+}
+
+fn get_desktop_path() -> PathBuf {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
+        if let Ok(raw_val) = key.get_value::<String, _>("Desktop") {
+            let expanded = expand_env_string(&raw_val);
+            let path = PathBuf::from(expanded);
+            if path.exists() {
+                return path;
+            }
+        }
+    }
+    // Fallback to default
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        return PathBuf::from(user_profile).join("Desktop");
+    }
+    PathBuf::from(".")
+}
+
+fn get_start_menu_programs_path() -> PathBuf {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") {
+        if let Ok(raw_val) = key.get_value::<String, _>("Programs") {
+            let expanded = expand_env_string(&raw_val);
+            let path = PathBuf::from(expanded);
+            if path.exists() {
+                return path;
+            }
+        }
+    }
+    // Fallback to default
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        return PathBuf::from(app_data).join("Microsoft").join("Windows").join("Start Menu").join("Programs");
+    }
+    PathBuf::from(".")
 }
 "#;

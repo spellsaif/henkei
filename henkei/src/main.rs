@@ -329,14 +329,38 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn sanitize_name(name: &str) -> String {
-    let sanitized: String = name.chars()
+    // Replace carriage return, newline, and tabs with spaces
+    let clean = name.replace('\r', " ").replace('\n', " ").replace('\t', " ");
+    
+    let sanitized: String = clean.chars()
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
         .collect();
-    let trimmed = sanitized.trim();
-    if trimmed.is_empty() {
+        
+    // Collapse multiple spaces
+    let mut collapsed = String::new();
+    let mut last_was_space = false;
+    for c in sanitized.chars() {
+        if c == ' ' {
+            if !last_was_space {
+                collapsed.push(c);
+                last_was_space = true;
+            }
+        } else {
+            collapsed.push(c);
+            last_was_space = false;
+        }
+    }
+    
+    let trimmed = collapsed.trim();
+    
+    // Limit to 40 characters to prevent path length issues and clutter
+    let mut shortened = trimmed.chars().take(40).collect::<String>();
+    shortened = shortened.trim().to_string();
+
+    if shortened.is_empty() {
         "WebDesktopApp".to_string()
     } else {
-        trimmed.to_string()
+        shortened
     }
 }
 
