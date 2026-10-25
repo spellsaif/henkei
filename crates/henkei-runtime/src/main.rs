@@ -108,6 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root_url_for_popup = root_url.clone();
     let allowed_for_popup = allowed_domains.clone();
 
+    let root_url_for_ipc = root_url.clone();
+    let allowed_for_ipc = allowed_domains.clone();
+
     let is_fullscreen = Arc::new(AtomicBool::new(false));
     let is_fullscreen_clone = is_fullscreen.clone();
 
@@ -122,18 +125,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_devtools(config.devtools)
         .with_initialization_script(&init_script)
         .with_navigation_handler(move |url: String| {
-            if navigation::should_navigate_internally(&url, &root_url_for_nav, &allowed_for_nav) {
-                true
-            } else {
-                let _ = open::that_detached(url);
-                false
-            }
+            navigation::should_navigate_internally(&url, &root_url_for_nav, &allowed_for_nav)
         })
         .with_new_window_req_handler(move |url: String, _features| {
             if navigation::should_navigate_internally(&url, &root_url_for_popup, &allowed_for_popup) {
                 NewWindowResponse::Allow
             } else {
-                let _ = open::that_detached(url);
+                // Deny unrequested external popups and ad popups without spawning browser windows!
                 NewWindowResponse::Deny
             }
         })
@@ -150,6 +148,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if let Some(title) = body.strip_prefix("henkei:title:") {
                     if !title.trim().is_empty() {
                         window_ref.set_title(title);
+                    }
+                } else if let Some(ext_url) = body.strip_prefix("henkei:open_external:") {
+                    if navigation::should_open_in_browser(ext_url, &root_url_for_ipc, &allowed_for_ipc) {
+                        let _ = open::that_detached(ext_url);
                     }
                 }
             }

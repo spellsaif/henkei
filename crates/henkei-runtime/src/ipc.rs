@@ -45,6 +45,30 @@ pub fn build_initialization_script(inject_css: Option<&str>, inject_js: Option<&
                 const observer = new MutationObserver(notifyTitle);
                 observer.observe(titleEl, { childList: true });
             }
+
+            // 4. Intentional User Click Interceptor
+            // Only user-initiated clicks on <a> hyperlinks will ever be considered for external browser dispatch.
+            // Invisible iframes, ad scripts, and tracking beacons will NEVER hijack the host browser.
+            document.addEventListener('click', (event) => {
+                const anchor = event.target.closest('a');
+                if (!anchor) return;
+
+                const href = anchor.getAttribute('href');
+                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+
+                try {
+                    const targetUrl = new URL(anchor.href, window.location.href);
+                    if (targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:') {
+                        if (targetUrl.origin !== window.location.origin) {
+                            if (window.ipc) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                window.ipc.postMessage('henkei:open_external:' + targetUrl.href);
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }, true);
         })();
     "#);
 

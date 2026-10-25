@@ -1,5 +1,72 @@
 use url::Url;
 
+/// Checks if a URL belongs to known advertising networks, tracking beacons, or syndication iframes.
+pub fn is_ad_or_tracker(target_url: &str) -> bool {
+    let target = match Url::parse(target_url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    let host = match target.host_str() {
+        Some(h) => h.to_lowercase(),
+        None => return false,
+    };
+
+    let ad_domains = [
+        "googlesyndication.com",
+        "doubleclick.net",
+        "googleadservices.com",
+        "google-analytics.com",
+        "googletagmanager.com",
+        "googletagservices.com",
+        "adnxs.com",
+        "popads.net",
+        "popcash.net",
+        "propellerads.com",
+        "adsterra.com",
+        "exoclick.com",
+        "trafficjunky.com",
+        "ad-maven.com",
+        "bidswitch.net",
+        "pubmatic.com",
+        "openx.net",
+        "rubiconproject.com",
+        "casalemedia.com",
+        "smartadserver.com",
+        "amazon-adsystem.com",
+        "taboola.com",
+        "outbrain.com",
+        "criteo.com",
+        "scorecardresearch.com",
+        "adroll.com",
+        "moatads.com",
+        "serving-sys.com",
+        "adform.net",
+        "adition.com",
+        "adkeeper.co",
+        "mgid.com",
+        "revcontent.com",
+    ];
+
+    for ad in &ad_domains {
+        if host == *ad || host.ends_with(&format!(".{}", ad)) {
+            return true;
+        }
+    }
+
+    if host.contains("syndication")
+        || host.contains("adsystem")
+        || host.contains("adservice")
+        || host.contains("adskeeper")
+        || host.contains("adnetwork")
+        || host.contains("popunder")
+    {
+        return true;
+    }
+
+    false
+}
+
 pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_domains: &[String]) -> bool {
     let target = match Url::parse(target_url) {
         Ok(u) => u,
@@ -13,7 +80,6 @@ pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_
 
     // Never handle non-web protocols internally (mailto:, tel:, etc.)
     if target.scheme() != "http" && target.scheme() != "https" {
-        let _ = open::that_detached(target_url);
         return false;
     }
 
@@ -32,6 +98,11 @@ pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_
         None => return true,
     };
 
+    // Never allow known ad/tracker domains internally
+    if is_ad_or_tracker(target_url) {
+        return false;
+    }
+
     // 1. Exact host match
     if target_host == app_host {
         return true;
@@ -42,7 +113,17 @@ pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_
         return true;
     }
 
-    // 3. User configured allowed domains
+    // 3. App-specific companion CDNs (e.g. YouTube media CDNs)
+    if app_host == "youtube.com" || app_host.ends_with(".youtube.com") || app_host == "youtu.be" {
+        let yt_domains = ["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "gstatic.com"];
+        for d in &yt_domains {
+            if target_host == *d || target_host.ends_with(&format!(".{}", d)) {
+                return true;
+            }
+        }
+    }
+
+    // 4. User configured allowed domains
     for domain in allowed_domains {
         let d = domain.to_lowercase();
         if target_host == d || target_host.ends_with(&format!(".{}", d)) {
@@ -50,10 +131,9 @@ pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_
         }
     }
 
-    // 4. Common SSO/OAuth authenticators to permit seamless authentication flows
+    // 5. Common SSO/OAuth authenticators to permit seamless authentication flows
     let oauth_domains = [
         "accounts.google.com",
-        "github.com",
         "login.microsoftonline.com",
         "appleid.apple.com",
         "auth0.com",
@@ -68,7 +148,40 @@ pub fn should_navigate_internally(target_url: &str, app_root_url: &str, allowed_
         }
     }
 
+    // GitHub OAuth login flow
+    if target_host == "github.com" {
+        let path = target.path();
+        if path.starts_with("/login") || path.starts_with("/oauth") {
+            return true;
+        }
+    }
+
     false
+}
+
+/// Determines if an external link should be dispatched to the system browser.
+/// Returns false for internal app links, ads, trackers, and pseudo-schemes.
+pub fn should_open_in_browser(target_url: &str, app_root_url: &str, allowed_domains: &[String]) -> bool {
+    // If it navigates internally, don't open in external browser
+    if should_navigate_internally(target_url, app_root_url, allowed_domains) {
+        return false;
+    }
+
+    // Never open ad networks, tracking frames, or syndication links in user's browser
+    if is_ad_or_tracker(target_url) {
+        return false;
+    }
+
+    let target = match Url::parse(target_url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+
+    if matches!(target.scheme(), "blob" | "data" | "about" | "javascript") {
+        return false;
+    }
+
+    target.scheme() == "http" || target.scheme() == "https"
 }
 
 #[cfg(test)]
@@ -96,5 +209,37 @@ mod tests {
         // External domain
         assert!(!should_navigate_internally("https://twitter.com/user", app_url, &allowed));
         assert!(!should_navigate_internally("https://phishing-example.com", app_url, &allowed));
+
+        // Ad and syndication domains should NEVER navigate internally
+        assert!(!should_navigate_internally("https://tpc.googlesyndication.com/sodar/5k7CCto5.html", app_url, &allowed));
+        assert!(!should_navigate_internally("https://googleads.g.doubleclick.net/pagead/ads", app_url, &allowed));
+    }
+
+    #[test]
+    fn test_ad_and_tracker_filtering() {
+        assert!(is_ad_or_tracker("https://tpc.googlesyndication.com/sodar/5k7CCto5.html"));
+        assert!(is_ad_or_tracker("https://adservice.google.com/adsid/integrator.js"));
+        assert!(is_ad_or_tracker("https://popads.net/serve/popunder.php"));
+        assert!(is_ad_or_tracker("https://securepubads.g.doubleclick.net/gampad/ads"));
+        
+        assert!(!is_ad_or_tracker("https://news.ycombinator.com"));
+        assert!(!is_ad_or_tracker("https://github.com/rust-lang/rust"));
+    }
+
+    #[test]
+    fn test_external_browser_dispatch() {
+        let app_url = "https://news.ycombinator.com";
+        let allowed = vec![];
+
+        // Legitimate external links SHOULD open in default browser
+        assert!(should_open_in_browser("https://nytimes.com/article", app_url, &allowed));
+        assert!(should_open_in_browser("https://github.com/spellsaif/henkei", app_url, &allowed));
+
+        // Internal app links should NOT open in browser
+        assert!(!should_open_in_browser("https://news.ycombinator.com/item?id=123", app_url, &allowed));
+
+        // Ad/syndication links should NEVER open in browser
+        assert!(!should_open_in_browser("https://tpc.googlesyndication.com/sodar/5k7CCto5.html", app_url, &allowed));
+        assert!(!should_open_in_browser("https://popads.net/serve", app_url, &allowed));
     }
 }
