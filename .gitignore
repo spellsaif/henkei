@@ -5,6 +5,7 @@ target/
 # Generated build output
 build/
 dist/
+test-dist/
 
 # OS-specific files
 .DS_Store

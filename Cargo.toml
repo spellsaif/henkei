@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "henkei",
-    "app-template",
-    "installer-template"
+    "crates/henkei-runtime",
+    "crates/henkei-scraper",
+    "crates/henkei-builder",
 ]

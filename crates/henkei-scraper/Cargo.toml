@@ -1,0 +1,14 @@
+[package]
+name = "henkei-scraper"
+version = "0.2.0"
+edition = "2021"
+description = "Web App Manifest, OpenGraph, and icon scraper for Henkei."
+license = "MIT"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"] }
+scraper = "0.23"
+url = "2.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico", "bmp", "webp"] }
