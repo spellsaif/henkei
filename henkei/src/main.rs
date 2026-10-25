@@ -201,6 +201,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // 5. Build native application package
     println!("\n\x1b[33m[3/3] Packaging native desktop deliverable...\x1b[0m");
     std::fs::create_dir_all(&output_dir)?;
+    let output_dir = std::fs::canonicalize(&output_dir).unwrap_or(output_dir);
     let bundle_path = henkei_builder::build_app(
         target_platform,
         &config,

@@ -92,7 +92,8 @@ pub fn install_to_freedesktop(
     bundle_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let sanitized = henkei_scraper::sanitize_name(&config.name);
-    let bin_path = bundle_dir.join(&sanitized);
+    let bin_path = fs::canonicalize(bundle_dir.join(&sanitized))
+        .unwrap_or_else(|_| bundle_dir.join(&sanitized));
 
     if let Some(data_dir) = dirs::data_dir() {
         let apps_dir = data_dir.join("applications");
