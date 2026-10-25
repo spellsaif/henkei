@@ -93,15 +93,22 @@ pub fn build_initialization_script(inject_css: Option<&str>, inject_js: Option<&
                 (document.head || document.documentElement).appendChild(adStyle);
 
                 // Auto-skipper interval
+                let wasAdShowing = false;
                 setInterval(() => {
                     const video = document.querySelector('video');
                     const adShowing = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
                     if (adShowing && video) {
+                        wasAdShowing = true;
                         video.muted = true;
-                        video.playbackRate = 16.0;
-                        if (!isNaN(video.duration) && isFinite(video.duration)) {
+                        if (!isNaN(video.duration) && isFinite(video.duration) && video.duration > 0) {
                             video.currentTime = video.duration;
+                        } else {
+                            video.playbackRate = 16.0;
                         }
+                    } else if (wasAdShowing && video) {
+                        wasAdShowing = false;
+                        video.muted = false;
+                        video.playbackRate = 1.0;
                     }
 
                     // Click skip button immediately when available

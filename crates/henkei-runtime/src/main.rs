@@ -13,6 +13,12 @@ use tao::{
 use wry::{NewWindowResponse, WebContext, WebViewBuilder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    {
+        // Fix for WebKitGTK GStreamer HTML5 video playback stalls on Linux (Wayland/Mesa/NVIDIA)
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     let mut config = AppConfig::load();
 
     // CLI Arguments Handling
@@ -102,8 +108,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let root_url = config.url.clone();
     let allowed_domains = config.allowed_domains.clone();
-    let root_url_for_nav = root_url.clone();
-    let allowed_for_nav = allowed_domains.clone();
 
     let root_url_for_popup = root_url.clone();
     let allowed_for_popup = allowed_domains.clone();
@@ -124,9 +128,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_user_agent(&config.user_agent)
         .with_devtools(config.devtools)
         .with_initialization_script(&init_script)
-        .with_navigation_handler(move |url: String| {
-            navigation::should_navigate_internally(&url, &root_url_for_nav, &allowed_for_nav)
-        })
         .with_new_window_req_handler(move |url: String, _features| {
             if navigation::should_navigate_internally(&url, &root_url_for_popup, &allowed_for_popup) {
                 NewWindowResponse::Allow
