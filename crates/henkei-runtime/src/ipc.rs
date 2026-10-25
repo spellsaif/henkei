@@ -69,6 +69,50 @@ pub fn build_initialization_script(inject_css: Option<&str>, inject_js: Option<&
                     }
                 } catch (_) {}
             }, true);
+
+            // 5. Automated Video Player Ad-Skipper (Pake-Style Automation)
+            // Fast-forwards in-stream ads without breaking the media pipeline
+            (function initVideoPlayerAdSkipper() {
+                const isYouTube = window.location.hostname.includes('youtube.com');
+                if (!isYouTube) return;
+
+                // Inject cosmetic banner hiding CSS
+                const adStyle = document.createElement('style');
+                adStyle.id = 'henkei-cosmetic-shield';
+                adStyle.textContent = `
+                    #masthead-ad, 
+                    ytd-ad-slot-renderer, 
+                    .ytd-in-feed-ad-layout-renderer,
+                    .ytp-ad-overlay-container,
+                    .ytp-ad-message-container,
+                    ytd-banner-promo-renderer,
+                    #player-ads {
+                        display: none !important;
+                    }
+                `;
+                (document.head || document.documentElement).appendChild(adStyle);
+
+                // Auto-skipper interval
+                setInterval(() => {
+                    const video = document.querySelector('video');
+                    const adShowing = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
+                    if (adShowing && video) {
+                        video.muted = true;
+                        video.playbackRate = 16.0;
+                        if (!isNaN(video.duration) && isFinite(video.duration)) {
+                            video.currentTime = video.duration;
+                        }
+                    }
+
+                    // Click skip button immediately when available
+                    const skipButton = document.querySelector(
+                        '.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button'
+                    );
+                    if (skipButton) {
+                        skipButton.click();
+                    }
+                }, 100);
+            })();
         })();
     "#);
 
